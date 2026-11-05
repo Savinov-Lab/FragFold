@@ -193,3 +193,27 @@ nextflow run ${NEXTFLOWDIR}/main.nf -w $WORKDIR -c $NF_CFG -params-file $PARAMS 
 ### Submitting nextflow as a job for large colabfold jobs
 
 For most users, it will take days for all the submitted colabfold jobs to complete. In order to keep nextflow running until all the processes are complete, we submit it as a job with a long time limit. For help with submitting jobs, see the example script: `FragFold/scripts/submit/submit_nextflow.sh`. This script supports `-resume` by copying the task metadata files. To get it running on your HPC, you will need to edit the slurm directives and paths.
+
+# Rosetta relax and interface analysis (optional)
+
+Predicted fragment-protein complexes can be relaxed with Rosetta FastRelax and scored with `InterfaceAnalyzer`. This is separate from the Nextflow pipeline. Build Rosetta from source, or install a prebuilt package from the RosettaCommons conda channel:
+
+```bash
+conda create -n rosetta -c https://conda.rosettacommons.org -c conda-forge rosetta python=3.12
+```
+
+`scripts/submit/submit_rosetta_relax.sh` relaxes each structure in a list of PDBs and then runs `InterfaceAnalyzer` on the relaxed models. As a Slurm array job, each task takes every Nth line of the list. Without Slurm, it processes the whole list in one run.
+
+```bash
+ls preds/*.pdb > pdb_list.txt
+export ROSETTA_BIN=/path/to/rosetta/main/source/bin   # conda: $CONDA_PREFIX/bin, with ROSETTA_EXT=""
+export FRAGFOLD_DIR=/path/to/FragFold
+export INTERFACE=A_B          # or FIXEDCHAINS="A B" to keep several protein copies on one side
+sbatch --array=0-9 ${FRAGFOLD_DIR}/scripts/submit/submit_rosetta_relax.sh pdb_list.txt relax_out ramp
+```
+
+There are two relax protocols in `scripts/rosetta/`. Both are five repeats of InterfaceRelax2019 with constraints to the starting coordinates:
+- `ramp`: the coordinate-constraint weight ramps 1.0 → 0.5 → 0 → 0 within each repeat. Flexible regions, such as linkers or hinges, can move substantially.
+- `constrained`: the weight stays at 1.0, so the model stays close to the prediction.
+
+Each task writes `relaxed_N.silent`, `relax_score_N.sc` and `interface_score_N.sc`, which has `dG_separated`, `dSASA_int`, `sc_value` and related columns.
